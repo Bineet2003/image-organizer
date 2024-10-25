@@ -1,94 +1,93 @@
-import tensorflow as tf
-from tensorflow.keras import layers, models
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
+import os
 import numpy as np
-from tensorflow.keras.preprocessing import image
-import matplotlib.pyplot as plt
+import shutil
+from tensorflow.keras.preprocessing.image import ImageDataGenerator, load_img, img_to_array
+from tensorflow.keras.models import Sequential, load_model
+from tensorflow.keras.layers import Dense, Flatten
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.applications import VGG16
 
-# Set the path to your dataset
-dataset_path = r'C:\Users\patel\OneDrive\Pictures'
+# Set paths for your training data and organized images
+train_data_dir = r'C:\Users\patel\OneDrive\Pictures\Training Data'  # Directory containing training images
+organized_path = r'C:\Users\patel\OneDrive\Pictures\Organized'  # Where to save organized images
 
-# Create an ImageDataGenerator for data augmentation
-datagen = ImageDataGenerator(
-    rescale=1.0/255.0,
-    validation_split=0.2  # 20% for validation
+# Data Augmentation
+data_gen = ImageDataGenerator(
+    rotation_range=40,
+    width_shift_range=0.2,
+    height_shift_range=0.2,
+    shear_range=0.2,
+    zoom_range=0.2,
+    horizontal_flip=True,
+    fill_mode='nearest'
 )
 
-# Load training and validation data
-train_data = datagen.flow_from_directory(
-    dataset_path,
-    target_size=(224, 224),  # VGG16 input size
+# Flow training images in batches
+train_data = data_gen.flow_from_directory(
+    train_data_dir,
+    target_size=(224, 224),
     batch_size=32,
-    class_mode='categorical',  # Use 'categorical' for multi-class classification
-    subset='training'
+    class_mode='categorical'
 )
 
-validation_data = datagen.flow_from_directory(
-    dataset_path,
-    target_size=(224, 224),  # VGG16 input size
-    batch_size=32,
-    class_mode='categorical', 
-    subset='validation'
-)
+# Load the VGG16 model without the top layer (classifier)
+base_model = VGG16(weights='imagenet', include_top=False, input_shape=(224, 224, 3))
 
-# Load the pre-trained VGG16 model + higher level layers
-base_model = tf.keras.applications.VGG16(weights='imagenet', include_top=False, input_shape=(224, 224, 3))
+# Freeze the base model layers
+for layer in base_model.layers:
+    layer.trainable = False
 
-# Freeze the base model
-base_model.trainable = False
-
-# Create the complete model
-model = models.Sequential([
-    base_model,
-    layers.Flatten(),
-    layers.Dense(256, activation='relu'),
-    layers.Dropout(0.5),  # Dropout for regularization
-    layers.Dense(len(train_data.class_indices), activation='softmax')  # Number of categories
+# Build the new model
+model = Sequential([
+    base_model,  # Add the VGG16 base model
+    Flatten(),   # Flatten the output from the base model
+    Dense(128, activation='relu'),  # Add a fully connected layer
+    Dense(len(train_data.class_indices), activation='softmax')  # Output layer for categories
 ])
 
 # Compile the model
-model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+model.compile(optimizer=Adam(), loss='categorical_crossentropy', metrics=['accuracy'])
 
 # Train the model
-history = model.fit(
-    train_data,
-    validation_data=validation_data,
-    epochs=10,  # You can adjust the number of epochs
-    steps_per_epoch=len(train_data),
-    validation_steps=len(validation_data)
-)
+model.fit(train_data, epochs=50, steps_per_epoch=len(train_data))
 
-# Evaluate the model on validation data
-val_loss, val_accuracy = model.evaluate(validation_data)
-print(f'Validation Loss: {val_loss}, Validation Accuracy: {val_accuracy}')
-
-# Save the model
+# Save the trained model
 model.save('photo_organizer_model.h5')
+print("Model saved successfully!")
+
+# Load the saved model
+loaded_model = load_model('photo_organizer_model.h5')
+print("Model loaded successfully!")
 
 # Function to predict the category of a new image
 def predict_image(img_path):
-    img = image.load_img(img_path, target_size=(224, 224))
-    img_array = image.img_to_array(img) / 255.0
+    img = load_img(img_path, target_size=(224, 224))
+    img_array = img_to_array(img) / 255.0
     img_array = np.expand_dims(img_array, axis=0)
     
-    predictions = model.predict(img_array)
+    predictions = loaded_model.predict(img_array)
     predicted_class = np.argmax(predictions, axis=1)
-    return predicted_class
+    return predicted_class[0]
 
+# Loop through the images in the Saved Pictures directory
+saved_pictures_path = r'C:\Users\patel\OneDrive\Pictures\Saved Pictures'
 
-# Plotting training history
-plt.plot(history.history['accuracy'], label='Train Accuracy')
-plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
-plt.title('Model Accuracy')
-plt.ylabel('Accuracy')
-plt.xlabel('Epoch')
-plt.legend()
-plt.show()
+for filename in os.listdir(saved_pictures_path):
+    if filename.endswith(('.jpg', '.jpeg', '.png', '.gif')):
+        img_path = os.path.join(saved_pictures_path, filename)
+        
+        # Predict the category for the image
+        predicted_category_index = predict_image(img_path)
 
-plt.plot(history.history['loss'], label='Train Loss')
-plt.plot(history.history['val_loss'], label='Validation Loss')
-plt.title('Model Loss')
-plt.ylabel('Loss')
-plt.xlabel('Epoch')
-plt.legend()
-plt.show()
+        # Get category name from class indices
+        category_name = list(train_data.class_indices.keys())[predicted_category_index]
+
+        # Create the category folder if it doesn't exist
+        category_folder_path = os.path.join(organized_path, category_name)
+        if not os.path.exists(category_folder_path):
+            os.makedirs(category_folder_path)
+
+        # Move the image to the category folder
+        shutil.move(img_path, os.path.join(category_folder_path, filename))
+
+print("Images have been organized successfully!")
