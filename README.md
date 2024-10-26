@@ -32,7 +32,3 @@ The following libraries are required to run this project:
 - **Pandas & NumPy** for data handling  
 - **Matplotlib & Seaborn** for plotting results  
 - **scikit-learn** for generating the classification report  
-
-Install all dependencies using:  
-```bash
-pip install -r requirements.txt
