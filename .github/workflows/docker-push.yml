@@ -1,0 +1,27 @@
+name: Build and Push Docker Image
+
+on:
+  push:
+    branches:
+      - main  # or your desired branch
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Log in to Amazon ECR
+      run: |
+        aws ecr get-login-password --region <your-region> | docker login --username AWS --password-stdin <aws_account_id>.dkr.ecr.<region>.amazonaws.com
+
+    - name: Build Docker image
+      run: |
+        docker build -t image-classifier-app .
+
+    - name: Tag and Push Docker Image
+      run: |
+        docker tag image-classifier-app:latest <aws_account_id>.dkr.ecr.<region>.amazonaws.com/image-classifier-app:latest
+        docker push <aws_account_id>.dkr.ecr.<region>.amazonaws.com/image-classifier-app:latest
